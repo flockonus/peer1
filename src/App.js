@@ -1,6 +1,9 @@
 import React from 'react';
 import logo from './logo.svg';
 import './App.css';
+import { init } from "./p2p";
+
+setTimeout(init, Math.random() * 1000);
 
 function App() {
   return (
