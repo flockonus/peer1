@@ -9,14 +9,14 @@ interface P2PMessage {
 }
 
 // keep a list of all messages ever sent
-const messages = [];
+// const messages = [];
 
 // ref to own instance connection
 let selfPeer: Peer;
 
 // keeps a map of peers
-// const peers: { [key: string]: Peer.DataConnection } = {};
-// (window as any)['_peers'] = peers;
+const peers: { [key: string]: Peer.DataConnection } = {};
+(window as any)['_peers'] = peers;
 
 const myId: string = getMyId();
 
@@ -37,8 +37,15 @@ export function init() {
 
   selfPeer.on('connection', conn => {
     console.log('selfPeer connection', conn.peer);
+    // so apparently we need to connect back in order to send messages!
+
+    if (!(conn.peer in peers)) {
+      console.log('>instantiating reciprocal connection');
+      peers[conn.peer] = selfPeer.connect(conn.peer, {reliable: true});
+    }
+    
     conn.on('data', ({ type, payload }) => {
-      console.log(`GOT[${conn.peer}]:`, type, payload)
+      console.log(`MSG[${conn.peer}]:`, type, payload)
       switch (type) {
         case 'hi':
           break;
@@ -47,8 +54,25 @@ export function init() {
           break;
       }
     });
+
+    conn.on('close', () => {
+      console.log('selfPeer connection close');
+      // not confident about the re-connect logic 🤔
+      delete peers[conn.peer];
+    })
   });
 }
+
+// send a message to all connected peers
+export function broadcastChat(msg: string) {
+  for(const key in peers) {
+    const conn = peers[key];
+    if (key === registryId) continue;
+    conn.send({type: 'chat', payload: {msg}})
+    console.log('sent to', conn.peer);
+  }
+}
+(window as any)._broadcastChat = broadcastChat;
 
 function getMyId(): string {
   const randId = 'peer1' + Math.random().toString(36).substr(2);
@@ -94,12 +118,14 @@ export function subscribeToRegistryOrBecomeIt() {
         // skip self
         if (id === selfPeer.id) return;
         const conn = selfPeer.connect(id, { reliable: true });
+        peers[id] = conn;
 
         conn.on('close', () => {
           console.log('peer close', id);
         })
 
         conn.on('open', () => {
+          peers[id] = conn;
           conn.send({ type: 'hi', payload: {} });
         });
       });
