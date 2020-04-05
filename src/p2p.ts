@@ -14,8 +14,9 @@ const messages = [];
 // ref to own instance connection
 let selfPeer: Peer;
 
-// string -> conn
-const peers: any = {}
+// keeps a map of peers
+// const peers: { [key: string]: Peer.DataConnection } = {};
+// (window as any)['_peers'] = peers;
 
 const myId: string = getMyId();
 
@@ -23,19 +24,23 @@ console.log('my id is', myId);
 
 export function init() {
   selfPeer = new Peer(myId);
+  (window as any)['_selfPeer'] = selfPeer;
+
   selfPeer.on('error', err => {
     console.warn('selfPeer error', err);
   });
+
   selfPeer.on('open', () => {
     console.info('selfPeer open');
     subscribeToRegistryOrBecomeIt();
   });
 
   selfPeer.on('connection', conn => {
+    console.log('selfPeer connection', conn.peer);
     conn.on('data', ({ type, payload }) => {
+      console.log(`GOT[${conn.peer}]:`, type, payload)
       switch (type) {
-        case 'intro':
-          console.log('got peer', conn.peer, conn.metadata);
+        case 'hi':
           break;
         default:
           console.log('msg uknown', type, payload);
@@ -43,14 +48,12 @@ export function init() {
       }
     });
   });
-
-
 }
 
 function getMyId(): string {
   const randId = 'peer1' + Math.random().toString(36).substr(2);
   if (['localhost', '127.0.0.1'].includes(window.location.hostname)) {
-    // while in development makes it non-sticky
+    // while in development makes ID non-sticky
     return randId;
   } else {
     if (!localStorage.getItem('myid')) localStorage.setItem('myid', randId);
@@ -72,10 +75,16 @@ export function subscribeToRegistryOrBecomeIt() {
     console.log('registryConn open');
     registryConn.send({ type: 'register' });
   });
+
   registryConn.on('error', (err) => {
-    console.warn('registry error', err);
-    // TODO become a registry?
+    console.warn('registryConn error', err);
   });
+
+  registryConn.on('close', () => {
+    console.warn('registryConn close');
+    // TODO become a registry?
+  })
+
   registryConn.on('data', (data: P2PMessage) => {
     console.log('registry says:', data);
     clearTimeout(regTimeout);
@@ -84,8 +93,15 @@ export function subscribeToRegistryOrBecomeIt() {
       ids.forEach(id => {
         // skip self
         if (id === selfPeer.id) return;
-        peers[id] = selfPeer.connect(id, { reliable: true });
-        peers[id].send({ type: 'hi', payload: {} });
+        const conn = selfPeer.connect(id, { reliable: true });
+
+        conn.on('close', () => {
+          console.log('peer close', id);
+        })
+
+        conn.on('open', () => {
+          conn.send({ type: 'hi', payload: {} });
+        });
       });
     }
   });
@@ -98,22 +114,24 @@ export function becomeRegistry() {
 
   const registry = new Peer(registryId);
 
+  registry.on('open', () => {
+    console.log('registry: open 🤖📝')
+    subscribeToRegistryOrBecomeIt()
+  });
+
   registry.on('error', err => {
-    console.error('becomeRegistry', err);
-    if (err.type === "unavailable-id") {
-      // something happened.. a race condition perhaps?
-      subscribeToRegistryOrBecomeIt();
-    }
+    console.info('registry: error', err);
+    // if (err.type === "unavailable-id") {
+    // something happened.. on localhost multiple tabs a race condition is usual
+    subscribeToRegistryOrBecomeIt();
   });
 
   registry.on('connection', conn => {
     const id = conn.peer;
-    console.log('peer connected', id);
-
-    conn.on('close', removePeer.bind(null, id))
-    conn.on('error', removePeer.bind(null, id))
+    console.log('registry: connection', id);
 
     conn.on('open', () => {
+      console.log('registry: conn open', id);
       if (!(id in peers)) {
         peers[id] = conn;
         // tell it about everyone else
@@ -122,18 +140,21 @@ export function becomeRegistry() {
           payload: { ids: Object.keys(peers) },
         })
       }
-    })
+    });
+
+    conn.on('error', (err) =>{
+      console.log('registry: conn error', id, err);
+      delete peers[id];
+    });
+
+    conn.on('close', () => {
+      console.log('registry: conn close', id);
+      delete peers[id];
+    });
   })
 
-  registry.on('disconnected', () => console.log('registry disconnected'));
-
-  registry.on('open', id => {
-    console.log('registry open', id)
-    subscribeToRegistryOrBecomeIt()
+  registry.on('disconnected', () => {
+    console.log('registry: disconnected')
   });
-
-  function removePeer(id: string) {
-    delete peers[id];
-  }
 }
 
