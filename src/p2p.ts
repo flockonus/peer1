@@ -1,7 +1,12 @@
 import Peer from 'peerjs';
 
-const registryId = 'peer1-registry-aidcn1dckcwcSDCsdj2o3j';
+let registryId = 'peer1-registry-';
 const registryConnTimeout = 5 * 1000;
+let isInit = false;
+let isConnRegistry = false;
+let isRegistry = false;
+// can hold one subscription
+let subscriptions: any = [];
 
 interface P2PMessage {
   type: string;
@@ -22,7 +27,15 @@ const myId: string = getMyId();
 
 console.log('my id is', myId);
 
-export function init() {
+export function init(roomId: string, stream: MediaStream) {
+  if (isInit) {
+    console.warn('P2P is already init, ignoring');
+    return;
+  } else {
+    isInit = true;
+  }
+
+  registryId += roomId;
   selfPeer = new Peer(myId);
   (window as any)['_selfPeer'] = selfPeer;
 
@@ -42,6 +55,7 @@ export function init() {
     if (!(conn.peer in peers)) {
       console.log('>instantiating reciprocal connection');
       peers[conn.peer] = selfPeer.connect(conn.peer, {reliable: true});
+      emit();
     }
     
     conn.on('data', ({ type, payload }) => {
@@ -74,6 +88,29 @@ export function broadcastChat(msg: string) {
 }
 (window as any)._broadcastChat = broadcastChat;
 
+// 
+export function subscribe(cb: any) {
+  subscriptions.push(cb);
+}
+
+// send an update snapshot of public state
+function emit() {
+  const status = Object.freeze(getStatus());
+  subscriptions.forEach((channel:any) => channel(status));
+}
+
+export function getStatus() {
+  return {
+    peers: Object.keys(peers).map(key => {
+      if (key === registryId) return null;
+      return peers[key]
+
+    }).filter(x => x !== null),
+    isRegistry,
+    isConnRegistry,
+  }
+}
+
 function getMyId(): string {
   const randId = 'peer1' + Math.random().toString(36).substr(2);
   if (['localhost', '127.0.0.1'].includes(window.location.hostname)) {
@@ -98,15 +135,21 @@ export function subscribeToRegistryOrBecomeIt() {
   registryConn.on('open', () => {
     console.log('registryConn open');
     registryConn.send({ type: 'register' });
+    isConnRegistry = true;
+    emit();
   });
 
   registryConn.on('error', (err) => {
     console.warn('registryConn error', err);
+    isConnRegistry = false;
+    emit();
   });
 
   registryConn.on('close', () => {
     console.warn('registryConn close');
     // TODO become a registry?
+    isConnRegistry = false;
+    emit();
   })
 
   registryConn.on('data', (data: P2PMessage) => {
@@ -142,6 +185,8 @@ export function becomeRegistry() {
 
   registry.on('open', () => {
     console.log('registry: open 🤖📝')
+    isRegistry = true;
+    emit();
     subscribeToRegistryOrBecomeIt()
   });
 
