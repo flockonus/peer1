@@ -1,7 +1,7 @@
 export async function initWebCam() {
   return navigator.mediaDevices.getUserMedia({
     audio: true,
-    facingMode: "user",
+    // facingMode: "user",
     video: {
       width: { ideal: 640 },
       height: { ideal: 480 }
