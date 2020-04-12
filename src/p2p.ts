@@ -7,6 +7,7 @@ let isConnRegistry = false;
 let isRegistry = false;
 // can hold one subscription
 let subscriptions: any = [];
+let myStream: MediaStream;
 
 interface P2PMessage {
   type: string;
@@ -20,7 +21,7 @@ interface P2PMessage {
 let selfPeer: Peer;
 
 // keeps a map of peers
-const peers: { [key: string]: Peer.DataConnection } = {};
+const peers: { [key: string]: MediaStream } = {};
 (window as any)['_peers'] = peers;
 
 const myId: string = getMyId();
@@ -28,6 +29,7 @@ const myId: string = getMyId();
 console.log('my id is', myId);
 
 export function init(roomId: string, stream: MediaStream) {
+  myStream = stream;
   if (isInit) {
     console.warn('P2P is already init, ignoring');
     return;
@@ -48,45 +50,56 @@ export function init(roomId: string, stream: MediaStream) {
     subscribeToRegistryOrBecomeIt();
   });
 
+  selfPeer.on('call', (call) => {
+    // Answer the call with an A/V stream.
+    call.answer(myStream);
+    call.on('stream', (remoteStream) => {
+      peers[call.peer] = remoteStream;
+      emit();
+    });
+  })
+
   selfPeer.on('connection', conn => {
     console.log('selfPeer connection', conn.peer);
     // so apparently we need to connect back in order to send messages!
 
-    if (!(conn.peer in peers)) {
-      console.log('>instantiating reciprocal connection');
-      peers[conn.peer] = selfPeer.connect(conn.peer, {reliable: true});
-      emit();
-    }
+    // if (!(conn.peer in peers)) {
+    //   console.log('>instantiating reciprocal connection');
+    //   // NOT DATA ANYMORE peers[conn.peer] = selfPeer.connect(conn.peer, {reliable: true});
+    //   emit();
+    // }
     
-    conn.on('data', ({ type, payload }) => {
-      console.log(`MSG[${conn.peer}]:`, type, payload)
-      switch (type) {
-        case 'hi':
-          break;
-        default:
-          console.log('msg uknown', type, payload);
-          break;
-      }
-    });
+    // conn.on('data', ({ type, payload }) => {
+    //   console.log(`MSG[${conn.peer}]:`, type, payload)
+    //   switch (type) {
+    //     case 'hi':
+    //       break;
+    //     default:
+    //       console.log('msg uknown', type, payload);
+    //       break;
+    //   }
+    // });
+    
 
     conn.on('close', () => {
       console.log('selfPeer connection close');
       // not confident about the re-connect logic 🤔
       delete peers[conn.peer];
+      emit();
     })
   });
 }
 
 // send a message to all connected peers
-export function broadcastChat(msg: string) {
-  for(const key in peers) {
-    const conn = peers[key];
-    if (key === registryId) continue;
-    conn.send({type: 'chat', payload: {msg}})
-    console.log('sent to', conn.peer);
-  }
-}
-(window as any)._broadcastChat = broadcastChat;
+// export function broadcastChat(msg: string) {
+//   for(const key in peers) {
+//     const conn = peers[key];
+//     if (key === registryId) continue;
+//     conn.send({type: 'chat', payload: {msg}})
+//     console.log('sent to', conn.peer);
+//   }
+// }
+// (window as any)._broadcastChat = broadcastChat;
 
 // 
 export function subscribe(cb: any) {
@@ -96,16 +109,17 @@ export function subscribe(cb: any) {
 // send an update snapshot of public state
 function emit() {
   const status = Object.freeze(getStatus());
-  subscriptions.forEach((channel:any) => channel(status));
+  subscriptions.forEach((cb:any) => cb(status));
 }
 
 export function getStatus() {
   return {
-    peers: Object.keys(peers).map(key => {
-      if (key === registryId) return null;
-      return peers[key]
+    peers,
+    // Object.keys(peers).map(key => {
+    //   if (key === registryId) return null;
+    //   return peers[key]
 
-    }).filter(x => x !== null),
+    // }).filter(x => x !== null),
     isRegistry,
     isConnRegistry,
   }
@@ -150,7 +164,7 @@ export function subscribeToRegistryOrBecomeIt() {
     // TODO become a registry?
     isConnRegistry = false;
     emit();
-  })
+  });
 
   registryConn.on('data', (data: P2PMessage) => {
     console.log('registry says:', data);
@@ -160,16 +174,23 @@ export function subscribeToRegistryOrBecomeIt() {
       ids.forEach(id => {
         // skip self
         if (id === selfPeer.id) return;
-        const conn = selfPeer.connect(id, { reliable: true });
-        peers[id] = conn;
+        console.log('calling...', id);
+        const call = selfPeer.call(id, myStream);
+        call.on('stream', (remoteStream) => {
+          peers[id] = remoteStream;
+          emit();
+        });
+        // peers[id] = call;
 
-        conn.on('close', () => {
+        call.on('close', () => {
           console.log('peer close', id);
+          delete peers[id];
+          emit();
         })
 
-        conn.on('open', () => {
-          peers[id] = conn;
-          conn.send({ type: 'hi', payload: {} });
+        call.on('open', () => {
+          // peers[id] = call;
+          // call.send({ type: 'hi', payload: {} });
         });
       });
     }

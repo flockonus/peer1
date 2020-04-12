@@ -5,11 +5,12 @@ import { initWebCam } from "./video";
 
 class App extends React.Component {
   constructor(props) {
-    const urlParams = new URLSearchParams(window.location.search);
     super(props);
+    const urlParams = new URLSearchParams(window.location.search);
     this.state = {
       selfStream: null,
       roomId: urlParams.get('room') || 'default00000',
+      peers: {},
     };
     this.initCam();
   }
@@ -28,9 +29,8 @@ class App extends React.Component {
       };
       this.setState(state => {
         return { selfStream: stream }
-      }
-      /*, () => setTimeout(this.initNetwork.bind(this), Math.random() * 1000)
-      */
+      },
+        () => setTimeout(this.initNetwork.bind(this), Math.random() * 1000)
       );
     } catch (err) {
       // TODO make a fatal message here
@@ -39,13 +39,41 @@ class App extends React.Component {
   }
 
   async initNetwork() {
-    await P2P.init(this.status.roomId, this.state.selfStream);
     P2P.subscribe((p2pState) => {
       console.log('p2pState', p2pState);
+      this.setState({
+        peers: p2pState.peers,
+      });
     });
+    await P2P.init(this.state.roomId, this.state.selfStream);
+  }
+
+  renderPeerVideos(peers) {
+    const videos = [];
+    for (const key in peers) {
+      const videoEl = <video key={`key-${key}`} id={key}></video>;
+      videos.push(videoEl);
+    }
+    return videos;
+  }
+
+  // after each render, try to link the video stream to the video element
+  componentDidUpdate() {
+    for (const key in this.state.peers) {
+      const videoEl = document.getElementById(key);
+      if (!videoEl.srcObject) {
+        videoEl.srcObject = this.state.peers[key];
+        videoEl.onloadedmetadata = function(event) {
+          videoEl.play();
+        };
+        videoEl.volume = 0;
+      }
+      console.log(videoEl);
+    }
   }
 
   render() {
+    
     return (
       <div className="App">
         <header className="App-header">
@@ -53,6 +81,9 @@ class App extends React.Component {
           <div>OHAYOOOOO</div>
           <video className="video-self">Acquiring stream</video>
         </header>
+        <div className="stage">
+          {this.renderPeerVideos(this.state.peers)}
+        </div>
       </div>
     );
   }

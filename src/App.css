@@ -33,6 +33,23 @@
   height: 100%;
 }
 
+.stage {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: center;
+  align-content: center;
+
+  color: white;
+}
+
+.stage > * {
+  background-color: crimson;
+  border: 1px yellow solid;
+  width: 30vw;
+  /* height: 50px; */
+}
+
 /* 
 .App-logo {
   height: 40vmin;
