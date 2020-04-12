@@ -66,7 +66,7 @@ class App extends React.Component {
         videoEl.onloadedmetadata = function(event) {
           videoEl.play();
         };
-        videoEl.volume = 0;
+        videoEl.volume = 1;
       }
       console.log(videoEl);
     }
