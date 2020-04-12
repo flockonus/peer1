@@ -3,10 +3,9 @@ import './App.css';
 import * as P2P from "./p2p";
 import { initWebCam } from "./video";
 
-
 class App extends React.Component {
   constructor(props) {
-    var urlParams = new URLSearchParams(window.location.search);
+    const urlParams = new URLSearchParams(window.location.search);
     super(props);
     this.state = {
       selfStream: null,
@@ -51,7 +50,7 @@ class App extends React.Component {
       <div className="App">
         <header className="App-header">
           <div>HEADER</div>
-          <div>_</div>
+          <div>OHAYOOOOO</div>
           <video className="video-self">Acquiring stream</video>
         </header>
       </div>
